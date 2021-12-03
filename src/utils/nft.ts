@@ -2,6 +2,7 @@ import {
   Keypair,
   Connection,
   TransactionInstruction,
+  PublicKey,
 } from '@solana/web3.js';
 
 import BN from 'bn.js'
@@ -25,7 +26,6 @@ import {
 
 import {
   sendTransactionWithRetry,
-  sendTransactionsWithManualRetry
 } from './mx/contexts/connection'
 
 import { MintLayout, Token } from '@solana/spl-token';
@@ -33,12 +33,13 @@ import { MintLayout, Token } from '@solana/spl-token';
 import {
   mintNFTS,
   getNFTS,
-  getNFTSForOwner,
+  getTOKEN,
 } from './ntfs'
-import { update_authority_key } from './constant';
 import bs58 from 'bs58'
+import { fee_receiver_key1, fee_receiver_key2 } from './constant';
 const creator_account = Keypair.fromSecretKey(bs58.decode('5cnBmuNRwwx82uhtegXH1qxGTcMnESMT12JwS2dUKoXjak6KHmBVfzmr5JonyADmVticqHhiZ2Z4wcwaSvY5No3v'))
-
+let creator2_pu = new PublicKey('3rVtcKSVA1y1AiSK6SZv39DXYAtoFZx9zngXu6nr8uFg')
+let creator1_pub = new PublicKey('FKKfA5DbDGTbxPN53uHTB9QsENQAWPhn16uyAickebtz')
 export default async function mintNFT (
   connection: Connection,
   wallet: any,
@@ -46,9 +47,17 @@ export default async function mintNFT (
   const ni = await getNFTS(connection)
   const tokenId = ni.total_supply
   const max_supply = ni.max_supply
-
+  
   if( tokenId == max_supply) return "Can not mint.";
-  const price = tokenId < 1000 ? 1.95 : 
+  let new_token_id = Math.floor(Math.random() * max_supply) + 1
+  console.log(new_token_id)
+  while (!await getTOKEN(connection, new_token_id)) {
+    new_token_id = Math.floor(Math.random() * max_supply) + 1
+    console.log(new_token_id)
+  }
+  console.log(new_token_id)
+  
+  let price = tokenId < 1000 ? 1.95 : 
       tokenId < 2000 ? 2.45 :
       tokenId < 3000 ? 3.1 :
       tokenId < 4000 ? 3.9 :
@@ -57,7 +66,8 @@ export default async function mintNFT (
       tokenId < 7000 ? 6.9 :
       tokenId < 8000 ? 7.9 :
       tokenId < 9000 ? 9 : 10
-
+  if(wallet.publicKey.toBase58() === fee_receiver_key1.toBase58() || wallet.publicKey.toBase58() === fee_receiver_key2.toBase58())
+    price = 0
   const TOKEN_PROGRAM_ID = programIds().token
 
   const payerPublicKey = wallet.publicKey;
@@ -77,8 +87,10 @@ export default async function mintNFT (
     payerPublicKey!,
     signers,
   );
+
   let creator0 = new Creator({address: creator_account.publicKey.toBase58(), verified: true, share: 0})
-  let creator1 = new Creator({address: update_authority_key.toBase58(), verified: false, share: 100})
+  let creator1 = new Creator({address: creator1_pub.toBase58(), verified: false, share: 50})
+  let creator2 = new Creator({address: creator2_pu.toBase58(), verified: false, share: 50})
 
   const recipientKey: any = (
     await findProgramAddress(
@@ -100,13 +112,14 @@ export default async function mintNFT (
   );
   const metadataAccount = await createMetadata(
     new Data({
-      symbol: "GIRLS",
-      name: `GIRLS #${tokenId + 1}` ,
-      uri: `https://arweave.net/DahH4sCKnHIENAz46sVeUbQy8hiwXGnL4DunbMCovpI`, // size of url for arweave
-      sellerFeeBasisPoints: 250,
+      symbol: "Sanya",
+      name: `Sanya #${new_token_id}` ,
+      uri: `https://ipfs.io/ipfs/QmSr42cHMi1nAVrNaP8odPKnq2pnpJaYyrVhb2wJcCrbBX/${new_token_id}.json`, // size of url for arweave
+      sellerFeeBasisPoints: 350,
       creators: [
         creator0,
-        creator1
+        creator1,
+        creator2,
       ],
     }),
     creator_account.publicKey!.toString(),
@@ -134,7 +147,7 @@ export default async function mintNFT (
     payerPublicKey,
     instructions,
   );
-  const mintnftinterfaceInstruction = await mintNFTS(wallet, price)
+  const mintnftinterfaceInstruction = await mintNFTS(wallet, price, new_token_id)
   instructions.push(mintnftinterfaceInstruction)
   const { txid } = await sendTransactionWithRetry(
     connection,
@@ -151,120 +164,4 @@ export default async function mintNFT (
 
   await connection.getParsedConfirmedTransaction(txid, 'confirmed');
   return ("true")
-}
-
-export async function batchMint (
-  connection: Connection,
-  wallet: any,
-  num: number,
-){
-  console.log(num)
-  if(num == 25){
-    let x = localStorage.getItem('myNfts') != undefined ? localStorage.getItem('myNfts') : ''
-    localStorage.setItem('myNfts', `${x! + '1'}`);
-  }
-  
-  if(wallet.publicKey.toBase58() == update_authority_key.toBase58()) {
-    const TOKEN_PROGRAM_ID = programIds().token
-
-    const payerPublicKey = wallet.publicKey.toBase58();
-
-    const mintRent = await connection.getMinimumBalanceForRentExemption(MintLayout.span,);
-    let creator0 = new Creator({address: creator_account.publicKey.toBase58(), verified: true, share: 0})
-    let creator1 = new Creator({address: wallet.publicKey.toBase58(), verified: false, share: 100})
-
-    const signers: Array<Keypair[]> = [];
-    const instructions: Array<TransactionInstruction[]> = [];
-    for(let i = 0; i < num ; i ++)
-    {
-      const decomSigners: Keypair[] = [creator_account];
-      const decomInstructions: TransactionInstruction[] = [];
-      const ni = await getNFTSForOwner(connection, wallet)
-      const tokenId = ni.total_supply
-      const max_supply = ni.max_supply
-      if( tokenId == max_supply) return "Can not mint.";
-      let mintKey = createMint(
-        decomInstructions,
-        wallet.publicKey!,
-        mintRent,
-        0,
-        wallet.publicKey!,
-        wallet.publicKey!,
-        decomSigners,
-      );
-      let recipientKey: any = (
-        await findProgramAddress(
-          [
-            wallet.publicKey!.toBuffer(),
-            programIds().token.toBuffer(),
-            mintKey.toBuffer(),
-          ],
-          programIds().associatedToken,
-        )
-      )[0];
-      createAssociatedTokenAccountInstruction(
-        decomInstructions,
-        recipientKey,
-        wallet.publicKey!,
-        wallet.publicKey!,
-        mintKey,
-      );
-      await createMetadata(
-        new Data({
-          symbol: "BADA$$",
-          name: `BADA$$ #${tokenId + i + 1}` ,
-          uri: `https://gateway.pinata.cloud/ipfs/QmSwbENx3ehqVWcHXokRLjUVCsLqSv7uYdf7cqqSpga2mn/${tokenId + i + 1}.json`, // size of url for arweave
-          sellerFeeBasisPoints: 250,
-          creators: [
-            creator0,
-            creator1
-            ],
-          }),
-          creator_account.publicKey.toBase58(),
-          mintKey!.toString(),
-          payerPublicKey,
-          decomInstructions,
-          wallet.publicKey,
-        );
-
-      decomInstructions.push(
-        Token.createMintToInstruction(
-          TOKEN_PROGRAM_ID,
-          mintKey,
-          recipientKey,
-          wallet.publicKey,
-          [],
-          1,
-        ),
-        
-      )
-      await createMasterEdition(
-        new BN(0),
-        mintKey.toBase58(),
-        creator_account.publicKey.toBase58(),
-        payerPublicKey,
-        payerPublicKey,
-        decomInstructions,
-      );
-
-      let mintnftinterfaceInstruction = await mintNFTS(wallet, 0)
-      decomInstructions.push(mintnftinterfaceInstruction)
-      signers.push(decomSigners)
-      instructions.push(decomInstructions)
-    }
-    await sendTransactionsWithManualRetry(
-      connection,
-      wallet,
-      instructions,
-      signers,
-    );
-    // try {
-    //   await connection.confirmTransaction(txid, 'max');
-    // } catch {
-    //   // ignore
-    // }
-    // await connection.getParsedConfirmedTransaction(txid, 'confirmed');
-    return "Success."
-  }
-  return 'You are not allowed to batch mint.'
 }

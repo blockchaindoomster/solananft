@@ -3,24 +3,29 @@ import {
   TransactionInstruction, 
   Connection, 
   PublicKey, 
+  SYSVAR_RENT_PUBKEY
 } from '@solana/web3.js'
 import BN from "bn.js"
 import { deserialize, serialize } from 'borsh'
 import {
   update_authority_key,
-  fee_receiver_key,
+  fee_receiver_key1,
+  fee_receiver_key2,
   programId,
   NFTINTERFACEPREFIX,
-  WHITELISTPREFIX,
+  TOKENPREFIX,
 } from './constant'
 
 class MintArgs {
   instruction = new BN(2)
   price
+  new_token_id
   constructor(args: {
-    price: number
+    price: number,
+    new_token_id: number,
   }) {
     this.price = new BN(args.price * (10 ** 9))
+    this.new_token_id = args.new_token_id    
   }
 }
 
@@ -28,7 +33,6 @@ class NFTInterface {
   max_supply
   total_supply 
   update_authority_key
-  fee_receiver_key
   constructor(args: {
     max_supply: number,
     total_supply: number,
@@ -38,7 +42,6 @@ class NFTInterface {
       this.max_supply = args.max_supply
       this.total_supply = args.total_supply
       this.update_authority_key = args.update_authority_key
-      this.fee_receiver_key = args.fee_receiver_key
   }
 }
 
@@ -50,6 +53,7 @@ const NFT_INTERFACE_SCHEMA = new Map<any, any>([
       fields: [
         ['instruction', 'u8'],
         ['price', 'u64'],
+        ['new_token_id', 'u16']
       ],
     },
   ],
@@ -61,7 +65,6 @@ const NFT_INTERFACE_SCHEMA = new Map<any, any>([
         ['max_supply', 'u16'],
         ['total_supply', 'u16'],
         ['update_authority_key', 'u256'],
-        ['fee_receiver_key', 'u256'],
       ]
     }
   ],
@@ -70,6 +73,7 @@ const NFT_INTERFACE_SCHEMA = new Map<any, any>([
 export const mintNFTS = async(
   wallet: any,
   price: number,
+  new_token_id: number,
 ) => {
 
   const nft_interface_account_key = await PublicKey.findProgramAddress(
@@ -80,15 +84,29 @@ export const mintNFTS = async(
       ],
       programId
   )
-  const mvalue = new MintArgs({price})
+
+  const new_token_id_account = await PublicKey.findProgramAddress(
+    [
+        Buffer.from(TOKENPREFIX),
+        programId.toBuffer(),
+        update_authority_key.toBuffer(),
+        Buffer.from(new_token_id.toString()),
+    ],
+    programId
+  )
+
+  const mvalue = new MintArgs({price, new_token_id})
   const mtxnData = Buffer.from(serialize(NFT_INTERFACE_SCHEMA, mvalue))
 
   const minstruction = new TransactionInstruction({
       keys: [
+          {pubkey:new_token_id_account[0], isSigner: false, isWritable: true},
           {pubkey:nft_interface_account_key[0], isSigner: false, isWritable: true},
           {pubkey:update_authority_key, isSigner: false, isWritable: false},
-          {pubkey:fee_receiver_key, isSigner: false, isWritable: true},
+          {pubkey:fee_receiver_key1, isSigner: false, isWritable: true},
+          {pubkey:fee_receiver_key2, isSigner: false, isWritable: true},
           {pubkey:wallet.publicKey, isSigner: true, isWritable: true},
+          {pubkey:SYSVAR_RENT_PUBKEY, isSigner: false, isWritable: false},
           {pubkey:SystemProgram.programId, isSigner: false, isWritable: false},
       ],
       programId: programId,
@@ -118,6 +136,27 @@ export const getNFTS = async(
       accountInfo.data,
   )
   return ni
+} 
+
+
+export const getTOKEN = async(
+  conn: Connection,
+  new_token_id: number,
+) => {
+  const new_token_id_account = await PublicKey.findProgramAddress(
+    [
+        Buffer.from(TOKENPREFIX),
+        programId.toBuffer(),
+        update_authority_key.toBuffer(),
+        Buffer.from(new_token_id.toString()),
+    ],
+    programId
+  )
+  const accountInfo = await conn.getAccountInfo(new_token_id_account[0])
+  if (accountInfo === null) {
+    return true
+  }
+  return false
 } 
 
 export const getNFTSForOwner = async(
